@@ -2,7 +2,7 @@
 
 **High-performance intrinsic exploration methods for [PufferLib](https://github.com/PufferAI/PufferLib) — designed to not be the bottleneck.**
 
-[![Tests](https://img.shields.io/badge/tests-21%2F21-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-37%2F37-brightgreen.svg)]()
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
@@ -15,8 +15,11 @@ PufferLib trains PPO at 1-20M steps/sec. Adding exploration shouldn't slow that 
 | **RND** | Prediction error | <5% | ~33K | Burda et al., 2018 |
 | **NovelD** | Novelty difference + ERIR | <5% | ~33K | Zhang et al., 2021 |
 | **ICM** | Curiosity-driven | <8% | ~66K | Pathak et al., 2017 |
+| **NGU** | Episodic + lifelong | <10% | ~66K | Badia et al., 2020 |
+| **RIDE** | Impact-driven | <10% | ~66K | Raileanu et al., 2020 |
 | **Count-Based** | Visit counting | <1% | 0 | Bellemare et al., 2016 |
 | **Ensemble** | Model disagreement | <12% | ~165K | Pathak et al., 2019 |
+| **Go-Explore** | Archive-based | N/A | 0 | Ecoffet et al., 2021 |
 
 ## Performance Design
 
@@ -82,13 +85,16 @@ python -m puffer_explore.benchmark --method rnd --device cuda  # Specific method
 
 ```
 puffer_explore/
-├── methods/           # 5 exploration methods
+├── methods/           # 8 exploration methods
 │   ├── base.py        #   BaseExploration (pre-allocated buffers, running normalization)
 │   ├── rnd.py         #   RND (torch.compile'd target + predictor)
 │   ├── noveld.py      #   NovelD (batched obs+next_obs concat, ERIR via scatter_reduce)
 │   ├── icm.py         #   ICM (batched encoder + forward/inverse dynamics)
+│   ├── ngu.py         #   NGU (episodic + lifelong novelty)
+│   ├── ride.py        #   RIDE (impact-driven exploration)
 │   ├── count_based.py #   Count-based (pure tensor ops, zero NN overhead)
-│   └── ensemble.py    #   Ensemble disagreement (5 stacked models)
+│   ├── ensemble.py    #   Ensemble disagreement (5 stacked models)
+│   └── go_explore.py  #   Go-Explore (archive-based, Phase 1)
 ├── networks.py        # TinyMLP (~33K params), DynamicsEncoder, torch.compile wrapper
 ├── integration.py     # PufferLib hook (ExploreTrainer) + StandaloneExploreTrainer
 ├── benchmark.py       # Throughput measurement tool
