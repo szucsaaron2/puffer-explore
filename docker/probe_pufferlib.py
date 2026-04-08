@@ -66,7 +66,7 @@ def probe_pufferlib():
         # Create trainer
         trainer = pufferl.make(**config)
         print(f"Trainer type: {type(trainer)}")
-        print(f"\n=== Trainer attributes (buffers) ===")
+        print("\n=== Trainer attributes (buffers) ===")
         for attr in sorted(dir(trainer)):
             if not attr.startswith("_"):
                 val = getattr(trainer, attr, "?")
@@ -113,12 +113,12 @@ def probe_pufferlib():
 def probe_torch():
     """Check torch + CUDA availability."""
     import torch
-    print(f"\n=== PyTorch ===")
+    print("\n=== PyTorch ===")
     print(f"Version: {torch.__version__}")
     print(f"CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
-        print(f"VRAM: {torch.cuda.get_device_properties(0).total_mem / 1e9:.1f} GB")
+        print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
 
 if __name__ == "__main__":
