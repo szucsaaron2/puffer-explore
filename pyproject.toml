@@ -1,0 +1,29 @@
+[project]
+name = "puffer-explore"
+version = "0.1.0"
+description = "High-performance intrinsic exploration methods for PufferLib — designed to not be the bottleneck"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [{name = "Áron Szűcs"}]
+keywords = ["reinforcement-learning", "exploration", "pufferlib", "rnd", "curiosity", "intrinsic-motivation"]
+
+dependencies = [
+    "torch>=2.0",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "ruff>=0.1"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
