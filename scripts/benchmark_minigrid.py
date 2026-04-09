@@ -91,9 +91,16 @@ def run_experiment(
     batch_size: int = 4096,
     bptt_horizon: int = 256,
     beta: float = 0.01,
+    early_stop_solve_rate: float = 0.95,
+    early_stop_patience: int = 20,
     verbose: bool = True,
 ) -> dict:
-    """Run a single PufferLib + exploration experiment on MiniGrid."""
+    """Run a single PufferLib + exploration experiment on MiniGrid.
+
+    Early stops when solve rate >= early_stop_solve_rate for
+    early_stop_patience consecutive checks. Set early_stop_solve_rate > 1
+    to disable.
+    """
     from pufferlib.pufferl import PuffeRL, load_config
     import pufferlib
     import pufferlib.vector
@@ -146,43 +153,103 @@ def run_experiment(
 
     # Create trainer
     trainer = PuffeRL(train_cfg, vecenv, policy)
+    base_trainer = trainer  # keep reference to PuffeRL
 
     # Wrap with exploration
+    explore_trainer = None
     if method != "none":
         from puffer_explore.integration import ExploreTrainer
-        trainer = ExploreTrainer(
+        explore_trainer = ExploreTrainer(
             trainer,
             method=method,
             device=device,
             beta=beta,
         )
 
-    # Training loop
+    active_trainer = explore_trainer if explore_trainer else trainer
+
+    # Training loop with early stopping
     start_time = time.time()
     n_epochs = 0
     target_epochs = total_steps // batch_size
+    solved_streak = 0
+    early_stopped = False
+    best_solve_rate = 0.0
+    best_reward = 0.0
 
     while n_epochs < target_epochs:
-        trainer.evaluate()
-        if method != "none":
-            trainer.explore()
-        trainer.train()
+        active_trainer.evaluate()
+
+        # Inject intrinsic reward stats into PufferLib dashboard
+        if explore_trainer is not None:
+            active_trainer.explore()
+            # Compute mean intrinsic reward for logging
+            intrinsic = explore_trainer.exploration.compute_rewards(
+                base_trainer.observations.reshape(-1, explore_trainer._obs_dim),
+                explore_trainer._build_next_obs(
+                    base_trainer.observations
+                ).reshape(-1, explore_trainer._obs_dim),
+                base_trainer.actions.reshape(-1),
+            )
+            mean_intrinsic = intrinsic.mean().item()
+            max_intrinsic = intrinsic.max().item()
+            base_trainer.stats["explore/intrinsic_mean"].append(mean_intrinsic)
+            base_trainer.stats["explore/intrinsic_max"].append(max_intrinsic)
+            base_trainer.stats["explore/beta"].append(
+                explore_trainer.exploration.beta
+            )
+
+        active_trainer.train()
         n_epochs += 1
 
-        # Print progress every 10 epochs
-        if verbose and n_epochs % 10 == 0:
+        # Check early stopping based on solve rate
+        solve_rate = 0.0
+        reward = 0.0
+        if "episode/solved" in base_trainer.stats:
+            vals = base_trainer.stats["episode/solved"]
+            if vals:
+                solve_rate = np.mean(vals) if isinstance(vals, list) else vals
+        if "episode/r" in base_trainer.stats:
+            vals = base_trainer.stats["episode/r"]
+            if vals:
+                reward = np.mean(vals) if isinstance(vals, list) else vals
+
+        best_solve_rate = max(best_solve_rate, solve_rate)
+        best_reward = max(best_reward, reward)
+
+        if solve_rate >= early_stop_solve_rate:
+            solved_streak += 1
+        else:
+            solved_streak = 0
+
+        if solved_streak >= early_stop_patience:
+            early_stopped = True
+            if verbose:
+                elapsed = time.time() - start_time
+                steps = n_epochs * batch_size
+                print(f"    [{method}/{env_name}/s{seed}] "
+                      f"EARLY STOP at epoch {n_epochs} | "
+                      f"solve_rate={solve_rate:.1%} for {early_stop_patience} "
+                      f"epochs | {steps:,} steps | {elapsed:.0f}s")
+            break
+
+        # Print progress every 20 epochs
+        if verbose and n_epochs % 20 == 0:
             elapsed = time.time() - start_time
             steps = n_epochs * batch_size
             sps = steps / elapsed
+            ir_str = ""
+            if explore_trainer:
+                ir_str = f" | intrinsic={mean_intrinsic:.4f}"
             print(f"    [{method}/{env_name}/s{seed}] "
                   f"epoch {n_epochs}/{target_epochs} | "
-                  f"{steps:,} steps | {sps:,.0f} SPS | {elapsed:.0f}s")
+                  f"{steps:,} steps | {sps:,.0f} SPS | "
+                  f"solve={solve_rate:.1%} | r={reward:.3f}"
+                  f"{ir_str} | {elapsed:.0f}s")
 
     elapsed = time.time() - start_time
     total_actual_steps = n_epochs * batch_size
 
-    # Get final stats from PufferLib's internal tracking
-    base_trainer = trainer.pufferl if method != "none" else trainer
     base_trainer.close()
 
     return {
@@ -193,6 +260,9 @@ def run_experiment(
         "elapsed_seconds": elapsed,
         "sps": total_actual_steps / elapsed,
         "n_epochs": n_epochs,
+        "best_solve_rate": best_solve_rate,
+        "best_reward": best_reward,
+        "early_stopped": early_stopped,
     }
 
 
@@ -206,6 +276,10 @@ def parse_args():
     p.add_argument("--batch-size", type=int, default=4096)
     p.add_argument("--beta", type=float, default=0.01)
     p.add_argument("--device", type=str, default="cuda")
+    p.add_argument("--early-stop", type=float, default=0.95,
+                    help="Early stop when solve rate >= this (set >1 to disable)")
+    p.add_argument("--patience", type=int, default=20,
+                    help="Epochs above early-stop threshold before stopping")
     p.add_argument("--output", type=str, default="results_minigrid")
     return p.parse_args()
 
@@ -228,6 +302,7 @@ def main():
     print(f"  Steps:    {args.steps:,}")
     print(f"  Envs:     {args.num_envs} parallel")
     print(f"  Device:   {args.device}")
+    print(f"  Early stop: solve >= {args.early_stop:.0%} for {args.patience} epochs")
     print(f"  Total:    {total_runs} runs")
     print(f"{'='*70}\n")
 
@@ -251,10 +326,15 @@ def main():
                         batch_size=args.batch_size,
                         beta=args.beta,
                         device=args.device,
+                        early_stop_solve_rate=args.early_stop,
+                        early_stop_patience=args.patience,
                     )
                     seed_results.append(result)
+                    es = " [EARLY STOP]" if result.get("early_stopped") else ""
                     print(f"  Done: {result['elapsed_seconds']:.1f}s, "
-                          f"{result['sps']:,.0f} SPS\n")
+                          f"{result['sps']:,.0f} SPS, "
+                          f"best_solve={result.get('best_solve_rate', 0):.1%}"
+                          f"{es}\n")
                 except Exception as e:
                     print(f"  FAILED: {e}\n")
                     import traceback
@@ -268,6 +348,9 @@ def main():
                     "n_seeds": len(seed_results),
                     "mean_sps": np.mean([r["sps"] for r in seed_results]),
                     "mean_elapsed": np.mean([r["elapsed_seconds"] for r in seed_results]),
+                    "mean_solve_rate": np.mean([r.get("best_solve_rate", 0) for r in seed_results]),
+                    "mean_reward": np.mean([r.get("best_reward", 0) for r in seed_results]),
+                    "early_stopped": any(r.get("early_stopped", False) for r in seed_results),
                     "total_steps": args.steps,
                     "per_seed": seed_results,
                 }
@@ -283,12 +366,17 @@ def main():
         print(f"\n{'='*70}")
         print("  RESULTS SUMMARY")
         print(f"{'='*70}\n")
-        print(f"  {'Method':<15} {'Env':<20} {'Seeds':>5} {'SPS':>10} {'Time':>8}")
-        print(f"  {'-'*15} {'-'*20} {'-'*5} {'-'*10} {'-'*8}")
+        print(f"  {'Method':<15} {'Env':<20} {'Seeds':>5} {'Solve%':>8} {'Reward':>8} {'SPS':>8} {'Time':>8} {'ES':>4}")
+        print(f"  {'-'*15} {'-'*20} {'-'*5} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*4}")
         for r in all_results:
+            es = "Y" if r.get("early_stopped") else ""
             print(f"  {r['method']:<15} {r['env_name']:<20} "
-                  f"{r['n_seeds']:>5} {r['mean_sps']:>10,.0f} "
-                  f"{r['mean_elapsed']:>7.1f}s")
+                  f"{r['n_seeds']:>5} "
+                  f"{r.get('mean_solve_rate', 0):>7.1%} "
+                  f"{r.get('mean_reward', 0):>8.3f} "
+                  f"{r['mean_sps']:>8,.0f} "
+                  f"{r['mean_elapsed']:>7.1f}s "
+                  f"{es:>4}")
 
         # Save full summary
         summary_path = output_dir / "summary.json"
