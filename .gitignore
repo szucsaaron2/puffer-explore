@@ -12,3 +12,4 @@ results/
 *.pth
 .pytest_cache/
 .DS_Store
+resources

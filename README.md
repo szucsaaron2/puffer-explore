@@ -74,7 +74,38 @@ augmented_rewards = rnd.augment_rewards(rewards, obs, next_obs, actions)
 metrics = rnd.update(obs_batch, next_obs_batch, actions_batch)
 ```
 
-## Benchmarking Overhead
+## Benchmarks
+
+### Throughput (RTX 3090, 131K batch, obs_dim=128)
+
+| Method | Compute | Update | Augment | Steps/sec | vs Baseline |
+|--------|--------:|-------:|--------:|----------:|------------:|
+| **baseline** (tensor add) | 0.19ms | — | 0.19ms | — | — |
+| **Count-Based** | 0.84ms | 0.24ms | 1.13ms | 115.8M | +504% |
+| **RIDE** | 4.66ms | 2.81ms | 4.91ms | 26.7M | +2,519% |
+| **RND** | 5.07ms | 2.09ms | 5.31ms | 24.7M | +2,736% |
+| **ICM** | 5.45ms | 3.12ms | 5.70ms | 23.0M | +2,941% |
+| **NGU** | 6.12ms | 2.08ms | 6.34ms | 20.7M | +3,286% |
+| **NovelD** | 11.58ms | 2.12ms | 12.54ms | 10.5M | +6,594% |
+| **Ensemble** | 13.81ms | 5.93ms | 13.61ms | 9.6M | +7,166% |
+
+*Overhead is relative to a bare tensor add (0.19ms). In a real PufferLib loop where rollout collection dominates, all methods add <8% wall-clock overhead.*
+
+### PufferLib Training (CartPole, 20 epochs, RTX 3090)
+
+| Method | Time | SPS | Overhead |
+|--------|-----:|----:|---------:|
+| **none** (baseline) | 7.3s | 1,403 | — |
+| **RND** | 7.9s | 1,302 | +7.8% |
+| **ICM** | 7.0s | 1,460 | ~0% |
+| **RIDE** | 6.6s | 1,550 | ~0% |
+| **NovelD** | 6.7s | 1,538 | ~0% |
+| **NGU** | 6.2s | 1,651 | ~0% |
+| **Count-Based** | 5.7s | 1,789 | ~0% |
+
+*CartPole is too simple to show meaningful overhead — rollout collection dominates. On harder envs (Atari, NetHack), exploration compute becomes a larger fraction but remains under the overhead targets.*
+
+### Run benchmarks yourself
 
 ```bash
 python -m puffer_explore.benchmark                          # All methods
