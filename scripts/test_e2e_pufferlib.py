@@ -68,6 +68,7 @@ def main():
 
     # Simple policy for CartPole
     import torch.nn as nn
+    import numpy as np
 
     class CartPolePolicy(nn.Module):
         def __init__(self, obs_space, act_space):
@@ -75,25 +76,26 @@ def main():
             obs_size = obs_space.shape[0]
             n_actions = act_space.n
             self.net = nn.Sequential(
-                nn.Linear(obs_size, 64),
+                self._layer_init(nn.Linear(obs_size, 64)),
                 nn.ReLU(),
-                nn.Linear(64, 64),
+                self._layer_init(nn.Linear(64, 64)),
                 nn.ReLU(),
             )
-            self.actor = nn.Linear(64, n_actions)
-            self.critic = nn.Linear(64, 1)
+            self.actor = self._layer_init(nn.Linear(64, n_actions), std=0.01)
+            self.critic = self._layer_init(nn.Linear(64, 1), std=1.0)
+
+        @staticmethod
+        def _layer_init(layer, std=np.sqrt(2), bias_const=0.0):
+            nn.init.orthogonal_(layer.weight, std)
+            nn.init.constant_(layer.bias, bias_const)
+            return layer
 
         def forward(self, x, state=None):
-            hidden = self.net(x)
-            logits = self.actor(hidden)
-            value = self.critic(hidden)
-            return logits, value
+            h = self.net(x)
+            return self.actor(h), self.critic(h)
 
         def forward_eval(self, x, state=None):
-            hidden = self.net(x)
-            logits = self.actor(hidden)
-            value = self.critic(hidden)
-            return logits, value
+            return self.forward(x, state)
 
     policy = CartPolePolicy(
         vecenv.single_observation_space,
