@@ -36,9 +36,10 @@ def run_one(method, n_epochs=20, device="cuda"):
     config["wandb"] = False
     config["neptune"] = False
 
-    def cartpole_creator(**kwargs):
+    def cartpole_creator(buf=None, **kwargs):
         return pufferlib.vector.GymnasiumPufferEnv(
-            env_creator=lambda: gym.make("CartPole-v1")
+            env_creator=lambda: gym.make("CartPole-v1"),
+            buf=buf,
         )
 
     vecenv = pufferlib.vector.make(

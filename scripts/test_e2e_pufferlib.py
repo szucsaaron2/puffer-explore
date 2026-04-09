@@ -54,9 +54,10 @@ def main():
     print("\nCreating PufferLib CartPole environment + policy...")
     import gymnasium as gym
 
-    def cartpole_creator(**kwargs):
+    def cartpole_creator(buf=None, **kwargs):
         return pufferlib.vector.GymnasiumPufferEnv(
-            env_creator=lambda: gym.make("CartPole-v1")
+            env_creator=lambda: gym.make("CartPole-v1"),
+            buf=buf,
         )
 
     vecenv = pufferlib.vector.make(

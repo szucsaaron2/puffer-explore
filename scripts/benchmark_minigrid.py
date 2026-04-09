@@ -43,16 +43,25 @@ METHODS = ["none", "rnd", "icm", "noveld", "count_based", "ngu", "ride"]
 
 
 class MiniGridPolicy(nn.Module):
-    """PPO policy for MiniGrid with proper orthogonal initialization."""
+    """PPO policy for MiniGrid with proper initialization and obs scaling.
+
+    MiniGrid observations are 7x7x3 grid encoding (type, color, state)
+    flattened to 147 dims, normalized to [0, 1/255*max_val] by the wrapper.
+    Raw values are small integers (0-10), so after /255 they are ~0-0.04.
+    We rescale by 255/10 ≈ 25.5 to get [0, 1] range for the network.
+    """
+
+    # MiniGrid obs are divided by 255 in the wrapper but raw values are 0-10
+    OBS_SCALE = 25.5  # = 255/10, rescales [0, 0.04] → [0, 1]
 
     def __init__(self, obs_space, act_space):
         super().__init__()
         obs_size = obs_space.shape[0]
         n_actions = act_space.n
         self.net = nn.Sequential(
-            self._layer_init(nn.Linear(obs_size, 128)),
+            self._layer_init(nn.Linear(obs_size, 256)),
             nn.ReLU(),
-            self._layer_init(nn.Linear(128, 128)),
+            self._layer_init(nn.Linear(256, 128)),
             nn.ReLU(),
         )
         self.actor = self._layer_init(nn.Linear(128, n_actions), std=0.01)
@@ -65,7 +74,7 @@ class MiniGridPolicy(nn.Module):
         return layer
 
     def forward(self, x, state=None):
-        h = self.net(x)
+        h = self.net(x * self.OBS_SCALE)
         return self.actor(h), self.critic(h)
 
     def forward_eval(self, x, state=None):
@@ -79,8 +88,8 @@ def run_experiment(
     total_steps: int,
     num_envs: int = 16,
     device: str = "cuda",
-    batch_size: int = 1024,
-    bptt_horizon: int = 32,
+    batch_size: int = 4096,
+    bptt_horizon: int = 256,
     beta: float = 0.01,
     verbose: bool = True,
 ) -> dict:
@@ -102,10 +111,10 @@ def run_experiment(
     train_cfg["total_timesteps"] = total_steps
     train_cfg["batch_size"] = batch_size
     train_cfg["bptt_horizon"] = bptt_horizon
-    train_cfg["minibatch_size"] = min(256, batch_size)
-    train_cfg["max_minibatch_size"] = min(256, batch_size)
+    train_cfg["minibatch_size"] = min(1024, batch_size)
+    train_cfg["max_minibatch_size"] = min(1024, batch_size)
     train_cfg["update_epochs"] = 4
-    train_cfg["learning_rate"] = 2.5e-4
+    train_cfg["learning_rate"] = 1e-3
     train_cfg["device"] = device
     train_cfg["compile"] = False
     train_cfg["use_rnn"] = False
@@ -116,9 +125,10 @@ def run_experiment(
     config["neptune"] = False
 
     # Create PufferLib vectorized MiniGrid env
-    def env_creator(**kwargs):
+    def env_creator(buf=None, seed=seed, **kwargs):
         return pufferlib.vector.GymnasiumPufferEnv(
-            env_creator=lambda: make_wrapped_env(env_name, seed=seed)
+            env_creator=lambda: make_wrapped_env(env_name, seed=seed),
+            buf=buf,
         )
 
     vecenv = pufferlib.vector.make(
@@ -193,7 +203,7 @@ def parse_args():
     p.add_argument("--seeds", nargs="+", type=int, default=[0, 1])
     p.add_argument("--steps", type=int, default=300_000)
     p.add_argument("--num-envs", type=int, default=16)
-    p.add_argument("--batch-size", type=int, default=1024)
+    p.add_argument("--batch-size", type=int, default=4096)
     p.add_argument("--beta", type=float, default=0.01)
     p.add_argument("--device", type=str, default="cuda")
     p.add_argument("--output", type=str, default="results_minigrid")
