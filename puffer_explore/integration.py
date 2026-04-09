@@ -112,6 +112,7 @@ class ExploreTrainer:
         **explore_kwargs,
     ):
         self.pufferl = pufferl
+        self._version = self._detect_version()
 
         # Infer dimensions from PufferLib trainer if not provided
         if obs_dim is None:
@@ -132,25 +133,34 @@ class ExploreTrainer:
         self.device = device
         self._obs_dim = obs_dim
 
+    def _detect_version(self) -> str:
+        """Detect PufferLib version from API shape.
+
+        PufferLib 4.0: observations is (horizon, total_agents, obs_size),
+                       has rollouts() method.
+        PufferLib 3.0: observations is (segments, horizon, *obs_shape),
+                       has evaluate() method.
+        """
+        if hasattr(self.pufferl, "rollouts"):
+            return "4.0"
+        return "3.0"
+
     def _infer_obs_dim(self) -> int:
-        """Infer obs_dim from PufferLib 3.0 trainer."""
-        # PufferLib 3.0: self.observations has shape (segments, horizon, *obs_shape)
-        try:
-            obs_shape = self.pufferl.observations.shape[2:]
-            result = 1
-            for s in obs_shape:
-                result *= s
-            return result
-        except AttributeError:
-            pass
-        # Fallback: try vecenv
-        try:
-            return self.pufferl.vecenv.single_observation_space.shape[0]
-        except (AttributeError, IndexError):
-            raise ValueError("Cannot infer obs_dim. Please provide it explicitly.")
+        """Infer obs_dim from PufferLib trainer buffers."""
+        obs = self.pufferl.observations
+        if self._version == "4.0":
+            # (horizon, total_agents, obs_size)
+            return obs.shape[-1]
+        # 3.0: (segments, horizon, *obs_shape)
+        obs_shape = obs.shape[2:]
+        result = 1
+        for s in obs_shape:
+            result *= s
+        return result
 
     def _infer_n_envs(self) -> int:
-        # PufferLib 3.0: segments = batch_size // horizon
+        if self._version == "4.0":
+            return self.pufferl.observations.shape[1]
         try:
             return self.pufferl.segments
         except AttributeError:
@@ -160,65 +170,67 @@ class ExploreTrainer:
                 return 1024
 
     def _infer_rollout_steps(self) -> int:
-        # PufferLib 3.0: horizon = bptt_horizon
+        if self._version == "4.0":
+            return self.pufferl.observations.shape[0]
         try:
             return self.pufferl.observations.shape[1]
         except (AttributeError, IndexError):
             return 128
 
     @property
-    def epoch(self):
-        return self.pufferl.epoch
-
-    @property
-    def total_epochs(self):
-        return self.pufferl.total_epochs
+    def global_step(self):
+        return self.pufferl.global_step
 
     def evaluate(self):
-        """PufferLib rollout collection -- unchanged."""
+        """PufferLib rollout collection -- unchanged.
+
+        Calls rollouts() on 4.0, evaluate() on 3.0.
+        """
+        if self._version == "4.0":
+            return self.pufferl.rollouts()
         return self.pufferl.evaluate()
+
+    def _build_next_obs(self, observations):
+        """Construct next_obs by shifting along the time axis.
+
+        PufferLib does NOT store next_obs. We approximate it:
+        next_obs[t] = obs[t+1], with the last step duplicated.
+
+        4.0: time axis is dim 0 — (horizon, agents, obs_size)
+        3.0: time axis is dim 1 — (segments, horizon, *obs_shape)
+        """
+        next_obs = torch.empty_like(observations)
+        if self._version == "4.0":
+            next_obs[:-1] = observations[1:]
+            next_obs[-1] = observations[-1]
+        else:
+            next_obs[:, :-1] = observations[:, 1:]
+            next_obs[:, -1] = observations[:, -1]
+        return next_obs
 
     @torch.no_grad()
     def explore(self):
         """Batch-compute intrinsic rewards and augment the rollout buffer.
 
         Called AFTER evaluate(), BEFORE train().
-
-        PufferLib 3.0 buffer layout:
-          self.observations: (segments, horizon, *obs_shape)
-          self.actions:      (segments, horizon, *atn_shape)
-          self.rewards:      (segments, horizon)
-
-        PufferLib does NOT store next_obs separately. We construct it
-        by shifting observations: next_obs[t] = obs[t+1] within each
-        segment, with the last step duplicated.
         """
         buf = self.pufferl
 
         try:
-            # (segments, horizon, *obs_shape) -> (segments*horizon, obs_dim)
             obs_flat = buf.observations.reshape(-1, self._obs_dim)
-
-            # Construct next_obs by shifting within each segment
-            # obs[:, 1:] gives next obs for steps 0..horizon-2
-            # For the last step, duplicate the last observation
-            next_obs = torch.empty_like(buf.observations)
-            next_obs[:, :-1] = buf.observations[:, 1:]
-            next_obs[:, -1] = buf.observations[:, -1]
-            next_obs_flat = next_obs.reshape(-1, self._obs_dim)
-
+            next_obs_flat = self._build_next_obs(
+                buf.observations
+            ).reshape(-1, self._obs_dim)
             actions_flat = buf.actions.reshape(-1)
             rewards_flat = buf.rewards.reshape(-1)
         except AttributeError:
             return
 
-        # Augment rewards in-place (the core operation)
+        # Augment rewards in-place (reshape is a view, so
+        # modification of rewards_flat updates buf.rewards)
         self.exploration.augment_rewards(
             rewards_flat, obs_flat, next_obs_flat, actions_flat
         )
-
-        # Write augmented rewards back (reshape is a view, so in-place
-        # modification of rewards_flat already updates buf.rewards)
 
     def train(self):
         """PufferLib PPO update + exploration network update."""
@@ -227,15 +239,13 @@ class ExploreTrainer:
         # Update exploration networks using a sample from the buffer
         try:
             obs = self.pufferl.observations.reshape(-1, self._obs_dim)
-            # Sample a minibatch for the exploration update
-            n = min(obs.shape[0], self.pufferl.minibatch_size)
-            idx = torch.randperm(obs.shape[0], device=obs.device)[:n]
+            n_samples = min(obs.shape[0], 512)
+            idx = torch.randperm(obs.shape[0], device=obs.device)[:n_samples]
             mb_obs = obs[idx]
 
-            next_obs = torch.empty_like(self.pufferl.observations)
-            next_obs[:, :-1] = self.pufferl.observations[:, 1:]
-            next_obs[:, -1] = self.pufferl.observations[:, -1]
-            mb_next_obs = next_obs.reshape(-1, self._obs_dim)[idx]
+            mb_next_obs = self._build_next_obs(
+                self.pufferl.observations
+            ).reshape(-1, self._obs_dim)[idx]
 
             mb_actions = self.pufferl.actions.reshape(-1)[idx]
             explore_metrics = self.exploration.update(
@@ -251,13 +261,11 @@ class ExploreTrainer:
 
         return logs
 
-    def mean_and_log(self):
+    def log(self):
         """Pass through to PufferLib's logging."""
+        if hasattr(self.pufferl, "log"):
+            return self.pufferl.log()
         return self.pufferl.mean_and_log()
-
-    def print_dashboard(self):
-        """Pass through to PufferLib's dashboard."""
-        return self.pufferl.print_dashboard()
 
     def close(self):
         """Pass through to PufferLib's cleanup."""
