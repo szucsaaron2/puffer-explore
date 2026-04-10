@@ -177,8 +177,26 @@ def run_experiment(
     best_solve_rate = 0.0
     best_reward = 0.0
 
+    mean_intrinsic = 0.0
+
     while n_epochs < target_epochs:
         active_trainer.evaluate()
+
+        # Capture episode stats BEFORE train() clears them
+        # PufferLib's train() calls print_dashboard() which resets self.stats
+        solve_rate = 0.0
+        reward = 0.0
+        if "episode/solved" in base_trainer.stats:
+            vals = base_trainer.stats["episode/solved"]
+            if vals:
+                solve_rate = np.mean(vals) if isinstance(vals, list) else vals
+        if "episode/r" in base_trainer.stats:
+            vals = base_trainer.stats["episode/r"]
+            if vals:
+                reward = np.mean(vals) if isinstance(vals, list) else vals
+
+        best_solve_rate = max(best_solve_rate, solve_rate)
+        best_reward = max(best_reward, reward)
 
         # Inject intrinsic reward stats into PufferLib dashboard
         if explore_trainer is not None:
@@ -202,21 +220,7 @@ def run_experiment(
         active_trainer.train()
         n_epochs += 1
 
-        # Check early stopping based on solve rate
-        solve_rate = 0.0
-        reward = 0.0
-        if "episode/solved" in base_trainer.stats:
-            vals = base_trainer.stats["episode/solved"]
-            if vals:
-                solve_rate = np.mean(vals) if isinstance(vals, list) else vals
-        if "episode/r" in base_trainer.stats:
-            vals = base_trainer.stats["episode/r"]
-            if vals:
-                reward = np.mean(vals) if isinstance(vals, list) else vals
-
-        best_solve_rate = max(best_solve_rate, solve_rate)
-        best_reward = max(best_reward, reward)
-
+        # Early stopping check
         if solve_rate >= early_stop_solve_rate:
             solved_streak += 1
         else:
