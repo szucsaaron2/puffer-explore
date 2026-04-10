@@ -201,9 +201,13 @@ class TestNGU:
         next_obs = torch.randn(16, 64)
         actions = torch.zeros(16, dtype=torch.long)
         ngu.compute_rewards(obs, next_obs, actions)
-        assert ngu._epi_counts.sum() > 0
-        ngu.update(obs, next_obs, actions)
-        assert ngu._epi_counts.sum() == 0  # Reset after update
+        counts_first = ngu._epi_counts.sum().item()
+        assert counts_first > 0
+        # Episodic counts reset at start of next compute_rewards (per-rollout)
+        ngu.compute_rewards(obs, next_obs, actions)
+        counts_second = ngu._epi_counts.sum().item()
+        # Fresh counts from only this batch (reset happened at start)
+        assert counts_second == counts_first
 
 
 class TestRIDE:

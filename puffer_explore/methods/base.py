@@ -108,24 +108,13 @@ class BaseExploration(ABC):
         # Compute intrinsic rewards (batched, one call)
         intrinsic = self.compute_rewards(obs, next_obs, actions)
 
-        # Clip raw intrinsic rewards
+        # Clip raw intrinsic rewards to [0, reward_clip]
         intrinsic.clamp_(0.0, self.reward_clip)
 
-        if self.normalize_rewards:
-            # Running mean/var normalization (can suppress signal for
-            # non-stationary methods like RND — use with caution)
-            self._update_running_stats(intrinsic)
-            intrinsic = (intrinsic - self._reward_running_mean) / (
-                self._reward_running_var.sqrt() + 1e-8
-            )
-            intrinsic.clamp_(-5.0, 5.0)
-        else:
-            # Per-batch normalization: divide by batch std to keep scale
-            # stable without accumulating history that kills the signal
-            batch_std = intrinsic.std() + 1e-8
-            intrinsic = intrinsic / batch_std
-
-        # Add to extrinsic rewards (in-place, no allocation)
+        # Add to extrinsic rewards: r_total = r_ext + beta * r_int
+        # No normalization — beta is the user's control knob for
+        # balancing exploration vs exploitation. Raw intrinsic rewards
+        # are clipped but otherwise left at their natural scale.
         rewards.add_(self.beta * intrinsic)
 
         # Decay beta

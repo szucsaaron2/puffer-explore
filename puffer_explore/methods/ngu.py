@@ -91,21 +91,20 @@ class NGU(BaseExploration):
         actions: torch.Tensor,
     ) -> torch.Tensor:
         """NGU reward: episodic(s') * clamp(lifelong(s'), 1, L)."""
-        n = next_obs.shape[0]
+        # Reset episodic counts at start of each rollout
+        self._epi_counts.zero_()
 
         # --- Lifelong: RND prediction error ---
         target_out = self.target(next_obs)
         pred_out = self.predictor_compiled(next_obs)
         lifelong = (target_out - pred_out).pow(2).mean(dim=-1)
 
-        # Normalize lifelong
+        # Normalize lifelong using per-batch stats (not accumulating)
+        # This keeps the modulator responsive throughout training
         batch_mean = lifelong.mean()
-        batch_var = lifelong.var().clamp(min=1e-8)
-        self._life_count += n
-        self._life_mean += (batch_mean - self._life_mean) * n / self._life_count.clamp(min=1)
-        self._life_var += (batch_var - self._life_var) * n / self._life_count.clamp(min=1)
+        batch_std = lifelong.std().clamp(min=1e-8)
 
-        alpha = (lifelong - self._life_mean) / (self._life_var.sqrt() + 1e-8)
+        alpha = (lifelong - batch_mean) / batch_std
         modulated = alpha.clamp(min=1.0, max=self.max_reward_scale)
 
         # --- Episodic: hash-based counting ---
@@ -132,9 +131,6 @@ class NGU(BaseExploration):
 
         if self.predictor_compiled is not self.predictor:
             self.predictor_compiled.load_state_dict(self.predictor.state_dict())
-
-        # Reset episodic counts for next rollout
-        self._epi_counts.zero_()
 
         self._last_loss = loss.item()
         return {"explore/ngu_rnd_loss": self._last_loss}
