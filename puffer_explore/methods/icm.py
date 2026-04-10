@@ -45,7 +45,7 @@ class ICM(BaseExploration):
         embed_dim: int = 64,
         hidden_dim: int = 128,
         lr: float = 1e-3,
-        eta: float = 0.01,
+        eta: float = 1.0,
         icm_beta: float = 0.2,
         beta: float = 0.01,
         reward_clip: float = 5.0,

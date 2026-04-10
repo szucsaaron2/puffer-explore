@@ -97,6 +97,10 @@ class NovelD(BaseExploration):
         actions: torch.Tensor,
     ) -> torch.Tensor:
         """Batched NovelD: cat obs+next_obs, one forward pass, split, subtract."""
+        # Reset ERIR at start of each rollout (not in update())
+        if self.use_erir:
+            self._erir_visited.zero_()
+
         # Stack for single forward pass
         combined = torch.cat([obs, next_obs], dim=0)  # (2N, D)
 
@@ -157,10 +161,6 @@ class NovelD(BaseExploration):
 
         if self.predictor_compiled is not self.predictor:
             self.predictor_compiled.load_state_dict(self.predictor.state_dict())
-
-        # Reset ERIR for next rollout
-        if self.use_erir:
-            self._erir_visited.zero_()
 
         self._last_loss = loss.item()
         return {"explore/noveld_loss": self._last_loss}

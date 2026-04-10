@@ -29,8 +29,9 @@ class BaseExploration(ABC):
         rollout_steps: int,
         device: str = "cuda",
         beta: float = 0.01,
-        reward_clip: float = 1.0,
+        reward_clip: float = 5.0,
         beta_decay: float = 1.0,
+        normalize_rewards: bool = False,
     ):
         self.obs_dim = obs_dim
         self.n_envs = n_envs
@@ -40,6 +41,7 @@ class BaseExploration(ABC):
         self.initial_beta = beta
         self.reward_clip = reward_clip
         self.beta_decay = beta_decay
+        self.normalize_rewards = normalize_rewards
         self._step = 0
 
         # Pre-allocate the intrinsic reward buffer (reused every epoch)
@@ -48,7 +50,7 @@ class BaseExploration(ABC):
             self.total_steps, device=device, dtype=torch.float32
         )
 
-        # Running normalization for intrinsic rewards
+        # Running normalization for intrinsic rewards (only used if normalize_rewards=True)
         self._reward_running_mean = torch.zeros(1, device=device)
         self._reward_running_var = torch.ones(1, device=device)
         self._reward_count = torch.zeros(1, device=device, dtype=torch.long)
@@ -106,15 +108,22 @@ class BaseExploration(ABC):
         # Compute intrinsic rewards (batched, one call)
         intrinsic = self.compute_rewards(obs, next_obs, actions)
 
-        # Clip
+        # Clip raw intrinsic rewards
         intrinsic.clamp_(0.0, self.reward_clip)
 
-        # Normalize (running mean/var)
-        self._update_running_stats(intrinsic)
-        intrinsic = (intrinsic - self._reward_running_mean) / (
-            self._reward_running_var.sqrt() + 1e-8
-        )
-        intrinsic.clamp_(-5.0, 5.0)
+        if self.normalize_rewards:
+            # Running mean/var normalization (can suppress signal for
+            # non-stationary methods like RND — use with caution)
+            self._update_running_stats(intrinsic)
+            intrinsic = (intrinsic - self._reward_running_mean) / (
+                self._reward_running_var.sqrt() + 1e-8
+            )
+            intrinsic.clamp_(-5.0, 5.0)
+        else:
+            # Per-batch normalization: divide by batch std to keep scale
+            # stable without accumulating history that kills the signal
+            batch_std = intrinsic.std() + 1e-8
+            intrinsic = intrinsic / batch_std
 
         # Add to extrinsic rewards (in-place, no allocation)
         rewards.add_(self.beta * intrinsic)
