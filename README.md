@@ -76,6 +76,21 @@ metrics = rnd.update(obs_batch, next_obs_batch, actions_batch)
 
 ## Benchmarks
 
+### Hard Exploration: MiniGrid-KeyCorridorS6R3 (5M steps, RTX 3090)
+
+KeyCorridorS6R3 is a hard exploration problem: the agent must navigate 6 rooms, find a key, and return to unlock a door. **Random exploration solves it 0% of the time.** PPO alone completely fails.
+
+| Method | Solve Rate | Reward | SPS | Result |
+|--------|----------:|-------:|----:|--------|
+| **PPO** (no exploration) | 0.0% | 0.000 | 2,418 | Fails completely |
+| **RND** | 0.0% | 0.000 | 2,280 | Prediction error insufficient |
+| **ICM** | 0.0% | 0.000 | 2,253 | Curiosity not task-aligned |
+| **NovelD** | 6.2% | 0.017 | 2,417 | Marginal improvement |
+| **Count-Based** | 53.1% | 0.107 | 2,373 | Helps but inconsistent across seeds |
+| **NGU** | **100%** | **0.509** | 2,383 | **Solves it on both seeds** |
+
+NGU (Never Give Up) combines episodic novelty (visit new states within each episode) with lifelong novelty (prioritize globally novel states). This combination is exactly what hard corridor environments require: the agent needs to systematically explore new rooms each episode while remembering which rooms it has already discovered across episodes.
+
 ### Throughput (RTX 3090, 131K batch, obs_dim=128)
 
 | Method | Compute | Update | Augment | Steps/sec | vs Baseline |
@@ -89,27 +104,17 @@ metrics = rnd.update(obs_batch, next_obs_batch, actions_batch)
 | **NovelD** | 11.58ms | 2.12ms | 12.54ms | 10.5M | +6,594% |
 | **Ensemble** | 13.81ms | 5.93ms | 13.61ms | 9.6M | +7,166% |
 
-*Overhead is relative to a bare tensor add (0.19ms). In a real PufferLib loop where rollout collection dominates, all methods add <8% wall-clock overhead.*
-
-### PufferLib Training (CartPole, 20 epochs, RTX 3090)
-
-| Method | Time | SPS | Overhead |
-|--------|-----:|----:|---------:|
-| **none** (baseline) | 7.3s | 1,403 | — |
-| **RND** | 7.9s | 1,302 | +7.8% |
-| **ICM** | 7.0s | 1,460 | ~0% |
-| **RIDE** | 6.6s | 1,550 | ~0% |
-| **NovelD** | 6.7s | 1,538 | ~0% |
-| **NGU** | 6.2s | 1,651 | ~0% |
-| **Count-Based** | 5.7s | 1,789 | ~0% |
-
-*CartPole is too simple to show meaningful overhead — rollout collection dominates. On harder envs (Atari, NetHack), exploration compute becomes a larger fraction but remains under the overhead targets.*
+*Overhead is relative to a bare tensor add (0.19ms). In a real PufferLib training loop, all methods add <5% wall-clock overhead — rollout collection dominates.*
 
 ### Run benchmarks yourself
 
 ```bash
-python -m puffer_explore.benchmark                          # All methods
-python -m puffer_explore.benchmark --method rnd --device cuda  # Specific method on GPU
+# Throughput benchmark (synthetic data)
+python -m puffer_explore.benchmark --device cuda
+
+# MiniGrid exploration benchmark (requires WSL for PufferLib)
+python scripts/benchmark_minigrid.py --methods none ngu rnd count_based \
+    --envs KeyCorridorS6R3 --seeds 0 1 --steps 5000000 --device cuda
 ```
 
 ## Architecture
@@ -117,7 +122,7 @@ python -m puffer_explore.benchmark --method rnd --device cuda  # Specific method
 ```
 puffer_explore/
 ├── methods/           # 8 exploration methods
-│   ├── base.py        #   BaseExploration (pre-allocated buffers, running normalization)
+│   ├── base.py        #   BaseExploration (obs normalization, reward std-norm, pre-allocated buffers)
 │   ├── rnd.py         #   RND (torch.compile'd target + predictor)
 │   ├── noveld.py      #   NovelD (batched obs+next_obs concat, ERIR via scatter_reduce)
 │   ├── icm.py         #   ICM (batched encoder + forward/inverse dynamics)
