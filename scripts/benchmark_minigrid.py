@@ -37,6 +37,9 @@ ENVS = {
     "Empty-8x8": {"full_name": "MiniGrid-Empty-8x8-v0", "difficulty": "easy"},
     "DoorKey-6x6": {"full_name": "MiniGrid-DoorKey-6x6-v0", "difficulty": "medium"},
     "KeyCorridorS3R2": {"full_name": "MiniGrid-KeyCorridorS3R2-v0", "difficulty": "hard"},
+    "KeyCorridorS6R3": {"full_name": "MiniGrid-KeyCorridorS6R3-v0", "difficulty": "very_hard"},
+    "ObstructedMaze-2Dlhb": {"full_name": "MiniGrid-ObstructedMaze-2Dlhb-v1", "difficulty": "very_hard"},
+    "MultiRoom-N6": {"full_name": "MiniGrid-MultiRoom-N6-v0", "difficulty": "very_hard"},
 }
 
 METHODS = ["none", "rnd", "icm", "noveld", "count_based", "ngu", "ride"]
@@ -132,9 +135,12 @@ def run_experiment(
     config["neptune"] = False
 
     # Create PufferLib vectorized MiniGrid env
+    # Resolve short name to full gym ID
+    gym_id = ENVS[env_name]["full_name"] if env_name in ENVS else env_name
+
     def env_creator(buf=None, seed=seed, **kwargs):
         return pufferlib.vector.GymnasiumPufferEnv(
-            env_creator=lambda: make_wrapped_env(env_name, seed=seed),
+            env_creator=lambda: make_wrapped_env(gym_id, seed=seed),
             buf=buf,
         )
 
