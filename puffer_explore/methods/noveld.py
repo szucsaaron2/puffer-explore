@@ -47,7 +47,7 @@ class NovelD(BaseExploration):
         alpha: float = 0.5,
         use_erir: bool = True,
         erir_buckets: int = 65536,
-        beta: float = 0.01,
+        beta: float = 0.1,
         reward_clip: float = 5.0,
         beta_decay: float = 1.0,
         use_compile: bool = True,
@@ -95,9 +95,10 @@ class NovelD(BaseExploration):
         obs: torch.Tensor,
         next_obs: torch.Tensor,
         actions: torch.Tensor,
+        dones: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Batched NovelD: cat obs+next_obs, one forward pass, split, subtract."""
-        # Reset ERIR at start of each rollout (not in update())
+        # Reset ERIR visited set
         if self.use_erir:
             self._erir_visited.zero_()
 
@@ -117,26 +118,44 @@ class NovelD(BaseExploration):
             novelty_s_next - self.alpha * novelty_s, min=0.0
         )
 
-        # ERIR: zero out already-visited states (including duplicates within this batch)
+        # ERIR: zero out already-visited states within each episode
         if self.use_erir:
-            hashes = (next_obs * 97.0).to(torch.int32).sum(dim=-1).abs() % self._erir_n_buckets
-            hashes_long = hashes.long()
+            # Base observation hash
+            obs_hash = (next_obs * 97.0).to(torch.int32).sum(dim=-1).abs()
 
-            # Check which were already visited from previous batches
+            # Per-episode scoping: combine obs hash with episode ID
+            # so the same state in different episodes gets different buckets
+            if dones is not None and self.n_envs > 0:
+                rollout_len = n // self.n_envs
+                dones_2d = dones.reshape(rollout_len, self.n_envs)
+                # Episode ID = cumulative sum of dones per env
+                episode_ids = dones_2d.cumsum(dim=0).reshape(-1).long()
+                env_ids = torch.arange(
+                    self.n_envs, device=self.device
+                ).repeat(rollout_len)
+                composite = (
+                    obs_hash * 1000003 + episode_ids * 997 + env_ids * 31
+                )
+            else:
+                composite = obs_hash
+
+            hashes_long = (composite % self._erir_n_buckets).long()
+
+            # Check which were already visited
             already_visited = self._erir_visited[hashes_long]
 
-            # Within this batch: find first occurrence of each unique hash.
-            # unique(sorted=True) returns sorted unique values; the first occurrence
-            # in the original tensor for each unique value can be found via inverse indices.
+            # Within this batch: find first occurrence of each unique hash
             _, inverse = torch.unique(hashes_long, return_inverse=True)
             n_unique = inverse.max().item() + 1
 
-            # For each unique group, find the minimum index (= first occurrence)
             arange = torch.arange(n, device=self.device)
-            first_per_group = torch.full((n_unique,), n, dtype=torch.long, device=self.device)
-            first_per_group.scatter_reduce_(0, inverse, arange, reduce="amin", include_self=False)
+            first_per_group = torch.full(
+                (n_unique,), n, dtype=torch.long, device=self.device
+            )
+            first_per_group.scatter_reduce_(
+                0, inverse, arange, reduce="amin", include_self=False
+            )
 
-            # An element is "first in batch" if its index equals the min index for its group
             is_first_in_batch = (first_per_group[inverse] == arange)
 
             # Zero out: already visited OR duplicate within batch

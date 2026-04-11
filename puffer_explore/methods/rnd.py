@@ -84,6 +84,7 @@ class RND(BaseExploration):
         obs: torch.Tensor,
         next_obs: torch.Tensor,
         actions: torch.Tensor,
+        dones: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute RND rewards for entire rollout in one batched pass.
 

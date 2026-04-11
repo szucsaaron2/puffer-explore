@@ -226,10 +226,17 @@ class ExploreTrainer:
         except AttributeError:
             return
 
+        # Get terminal signals for per-episode episodic reset
+        dones_flat = None
+        try:
+            dones_flat = buf.terminals.reshape(-1)
+        except AttributeError:
+            pass
+
         # Augment rewards in-place (reshape is a view, so
         # modification of rewards_flat updates buf.rewards)
         self.exploration.augment_rewards(
-            rewards_flat, obs_flat, next_obs_flat, actions_flat
+            rewards_flat, obs_flat, next_obs_flat, actions_flat, dones_flat
         )
 
     def train(self):
@@ -248,8 +255,14 @@ class ExploreTrainer:
             ).reshape(-1, self._obs_dim)[idx]
 
             mb_actions = self.pufferl.actions.reshape(-1)[idx]
+
+            # Normalize obs before updating exploration networks
+            # (matching the normalization applied in augment_rewards)
+            norm_obs = self.exploration.normalize_obs(mb_obs)
+            norm_next_obs = self.exploration.normalize_obs(mb_next_obs)
+
             explore_metrics = self.exploration.update(
-                mb_obs, mb_next_obs, mb_actions
+                norm_obs, norm_next_obs, mb_actions
             )
         except AttributeError:
             explore_metrics = {}

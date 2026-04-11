@@ -67,6 +67,7 @@ class EnsembleDisagreement(BaseExploration):
         obs: torch.Tensor,
         next_obs: torch.Tensor,
         actions: torch.Tensor,
+        dones: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Variance of ensemble predictions = intrinsic reward."""
         action_onehot = torch.nn.functional.one_hot(

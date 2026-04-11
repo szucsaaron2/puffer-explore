@@ -67,6 +67,7 @@ class CountBased(BaseExploration):
         obs: torch.Tensor,
         next_obs: torch.Tensor,
         actions: torch.Tensor,
+        dones: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Count-based reward: beta / sqrt(count(s')).
 

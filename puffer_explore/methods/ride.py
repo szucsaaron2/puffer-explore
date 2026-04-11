@@ -82,6 +82,7 @@ class RIDE(BaseExploration):
         obs: torch.Tensor,
         next_obs: torch.Tensor,
         actions: torch.Tensor,
+        dones: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """RIDE: ||phi(s') - phi(s)|| / sqrt(count(s'))."""
         # Batch encode obs and next_obs in one pass

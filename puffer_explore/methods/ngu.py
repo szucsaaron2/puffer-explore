@@ -46,7 +46,7 @@ class NGU(BaseExploration):
         lr: float = 1e-3,
         max_reward_scale: float = 5.0,
         epi_buckets: int = 65536,
-        beta: float = 0.01,
+        beta: float = 0.001,
         reward_clip: float = 5.0,
         beta_decay: float = 1.0,
         use_compile: bool = True,
@@ -89,9 +89,12 @@ class NGU(BaseExploration):
         obs: torch.Tensor,
         next_obs: torch.Tensor,
         actions: torch.Tensor,
+        dones: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """NGU reward: episodic(s') * clamp(lifelong(s'), 1, L)."""
-        # Reset episodic counts at start of each rollout
+        n = next_obs.shape[0]
+
+        # Reset episodic counts
         self._epi_counts.zero_()
 
         # --- Lifelong: RND prediction error ---
@@ -100,15 +103,29 @@ class NGU(BaseExploration):
         lifelong = (target_out - pred_out).pow(2).mean(dim=-1)
 
         # Normalize lifelong using per-batch stats (not accumulating)
-        # This keeps the modulator responsive throughout training
         batch_mean = lifelong.mean()
         batch_std = lifelong.std().clamp(min=1e-8)
 
         alpha = (lifelong - batch_mean) / batch_std
         modulated = alpha.clamp(min=1.0, max=self.max_reward_scale)
 
-        # --- Episodic: hash-based counting ---
-        hashes = (next_obs * 97.0).to(torch.int32).sum(dim=-1).abs() % self.epi_buckets
+        # --- Episodic: hash-based counting (per-episode scoped) ---
+        obs_hash = (next_obs * 97.0).to(torch.int32).sum(dim=-1).abs()
+
+        # Per-episode scoping via composite hash
+        if dones is not None and self.n_envs > 0:
+            rollout_len = n // self.n_envs
+            dones_2d = dones.reshape(rollout_len, self.n_envs)
+            episode_ids = dones_2d.cumsum(dim=0).reshape(-1).long()
+            env_ids = torch.arange(
+                self.n_envs, device=self.device
+            ).repeat(rollout_len)
+            hashes = (
+                obs_hash * 1000003 + episode_ids * 997 + env_ids * 31
+            ) % self.epi_buckets
+        else:
+            hashes = obs_hash % self.epi_buckets
+
         ones = torch.ones_like(hashes, dtype=torch.int32)
         self._epi_counts.scatter_add_(0, hashes.long(), ones)
         counts = self._epi_counts[hashes.long()].float().clamp(min=1.0)

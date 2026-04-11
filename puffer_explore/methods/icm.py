@@ -84,6 +84,7 @@ class ICM(BaseExploration):
         obs: torch.Tensor,
         next_obs: torch.Tensor,
         actions: torch.Tensor,
+        dones: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Batched ICM: encode both, forward predict, compute error."""
         # Encode obs and next_obs in one batched pass
