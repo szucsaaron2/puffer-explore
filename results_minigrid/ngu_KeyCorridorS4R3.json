@@ -1,0 +1,37 @@
+{
+  "method": "ngu",
+  "env_name": "KeyCorridorS4R3",
+  "n_seeds": 2,
+  "mean_sps": 2344.5725256665837,
+  "mean_elapsed": 2131.49164891243,
+  "mean_solve_rate": 1.0,
+  "mean_reward": 0.4984375,
+  "early_stopped": false,
+  "total_steps": 5000000,
+  "per_seed": [
+    {
+      "method": "ngu",
+      "env_name": "KeyCorridorS4R3",
+      "seed": 0,
+      "total_steps": 4997120,
+      "elapsed_seconds": 2114.5219445228577,
+      "sps": 2363.2386568244397,
+      "n_epochs": 1220,
+      "best_solve_rate": 1.0,
+      "best_reward": 0.499375,
+      "early_stopped": false
+    },
+    {
+      "method": "ngu",
+      "env_name": "KeyCorridorS4R3",
+      "seed": 1,
+      "total_steps": 4997120,
+      "elapsed_seconds": 2148.461353302002,
+      "sps": 2325.9063945087273,
+      "n_epochs": 1220,
+      "best_solve_rate": 1.0,
+      "best_reward": 0.49749999999999994,
+      "early_stopped": false
+    }
+  ]
+}

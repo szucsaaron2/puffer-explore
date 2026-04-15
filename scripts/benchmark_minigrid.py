@@ -187,6 +187,12 @@ def run_experiment(
 
     mean_intrinsic = 0.0
 
+    # Training history for reward-vs-timesteps plots
+    history_steps = []
+    history_reward = []
+    history_solve = []
+    log_interval = max(1, target_epochs // 100)  # ~100 data points
+
     while n_epochs < target_epochs:
         active_trainer.evaluate()
 
@@ -205,6 +211,12 @@ def run_experiment(
 
         best_solve_rate = max(best_solve_rate, solve_rate)
         best_reward = max(best_reward, reward)
+
+        # Log training history
+        if n_epochs % log_interval == 0:
+            history_steps.append(n_epochs * batch_size)
+            history_reward.append(reward)
+            history_solve.append(solve_rate)
 
         # Inject intrinsic reward stats into PufferLib dashboard
         if explore_trainer is not None:
@@ -262,6 +274,11 @@ def run_experiment(
     elapsed = time.time() - start_time
     total_actual_steps = n_epochs * batch_size
 
+    # Final history point
+    history_steps.append(n_epochs * batch_size)
+    history_reward.append(reward)
+    history_solve.append(solve_rate)
+
     base_trainer.close()
 
     return {
@@ -275,6 +292,9 @@ def run_experiment(
         "best_solve_rate": best_solve_rate,
         "best_reward": best_reward,
         "early_stopped": early_stopped,
+        "history_steps": history_steps,
+        "history_reward": history_reward,
+        "history_solve": history_solve,
     }
 
 

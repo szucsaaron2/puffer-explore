@@ -80,18 +80,35 @@ metrics = rnd.update(obs_batch, next_obs_batch, actions_batch)
 
 KeyCorridorS6R3 is a hard exploration problem: the agent must navigate 6 rooms, find a key, and return to unlock a door. **Random exploration solves it 0% of the time.** PPO alone completely fails.
 
+#### KeyCorridorS4R3 — Medium-hard (4 rooms, 480 max steps)
+
+![Exploration Methods on KeyCorridorS4R3](docs/plots/combined_KeyCorridorS4R3.png)
+
+| Method | Solve Rate | Reward | Result |
+|--------|----------:|-------:|--------|
+| **PPO** (no exploration) | 3.1% | 0.015 | Barely solves it |
+| **ICM** | 3.1% | 0.009 | Curiosity doesn't help |
+| **Count-Based** | 53.1% | 0.275 | Helps but inconsistent |
+| **RND** | **100%** | 0.351 | **Solves it** |
+| **NovelD** | **100%** | **0.561** | **Best reward** |
+| **NGU** | **100%** | 0.498 | **Solves it** |
+
+Three exploration methods achieve 100% solve rate where PPO fails. NovelD achieves the highest reward (fastest solving).
+
+#### KeyCorridorS6R3 — Very hard (6 rooms, 1080 max steps)
+
 ![Exploration Methods on KeyCorridorS6R3](docs/plots/combined_KeyCorridorS6R3.png)
 
-| Method | Solve Rate | Reward | SPS | Result |
-|--------|----------:|-------:|----:|--------|
-| **PPO** (no exploration) | 0.0% | 0.000 | 2,418 | Fails completely |
-| **RND** | 0.0% | 0.000 | 2,280 | Prediction error insufficient |
-| **ICM** | 0.0% | 0.000 | 2,253 | Curiosity not task-aligned |
-| **NovelD** | 6.2% | 0.017 | 2,417 | Marginal improvement |
-| **Count-Based** | 53.1% | 0.107 | 2,373 | Helps but inconsistent across seeds |
-| **NGU** | **100%** | **0.509** | 2,383 | **Solves it on both seeds** |
+| Method | Solve Rate | Reward | Result |
+|--------|----------:|-------:|--------|
+| **PPO** (no exploration) | 0.0% | 0.000 | Fails completely |
+| **RND** | 0.0% | 0.000 | Prediction error insufficient |
+| **ICM** | 0.0% | 0.000 | Curiosity not task-aligned |
+| **NovelD** | 6.2% | 0.017 | Marginal improvement |
+| **Count-Based** | 53.1% | 0.107 | Helps but inconsistent across seeds |
+| **NGU** | **100%** | **0.509** | **Only method that solves it** |
 
-NGU (Never Give Up) combines episodic novelty (visit new states within each episode) with lifelong novelty (prioritize globally novel states). This combination is exactly what hard corridor environments require: the agent needs to systematically explore new rooms each episode while remembering which rooms it has already discovered across episodes.
+On the hardest environment, only NGU (Never Give Up) succeeds. NGU combines episodic novelty (visit new states within each episode) with lifelong novelty (prioritize globally novel states) — exactly what long-corridor environments require.
 
 ### Throughput (RTX 3090, 131K batch, obs_dim=128)
 

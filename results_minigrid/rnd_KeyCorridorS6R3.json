@@ -1,0 +1,37 @@
+{
+  "method": "rnd",
+  "env_name": "KeyCorridorS6R3",
+  "n_seeds": 2,
+  "mean_sps": 2280.1267466046565,
+  "mean_elapsed": 2191.616644382477,
+  "mean_solve_rate": 0.0,
+  "mean_reward": 0.0,
+  "early_stopped": false,
+  "total_steps": 5000000,
+  "per_seed": [
+    {
+      "method": "rnd",
+      "env_name": "KeyCorridorS6R3",
+      "seed": 0,
+      "total_steps": 4997120,
+      "elapsed_seconds": 2198.099828720093,
+      "sps": 2273.3817339450493,
+      "n_epochs": 1220,
+      "best_solve_rate": 0.0,
+      "best_reward": 0.0,
+      "early_stopped": false
+    },
+    {
+      "method": "rnd",
+      "env_name": "KeyCorridorS6R3",
+      "seed": 1,
+      "total_steps": 4997120,
+      "elapsed_seconds": 2185.133460044861,
+      "sps": 2286.8717592642643,
+      "n_epochs": 1220,
+      "best_solve_rate": 0.0,
+      "best_reward": 0.0,
+      "early_stopped": false
+    }
+  ]
+}

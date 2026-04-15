@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 # Consistent colors per method
@@ -163,6 +164,83 @@ def plot_combined(results: list[dict], env_name: str, output_path: Path):
     print(f"  Saved: {output_path}")
 
 
+def plot_reward_curves(results: list[dict], env_name: str, output_path: Path):
+    """Training curves: reward vs timesteps for all methods."""
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    has_data = False
+    for r in results:
+        method = r["method"]
+        color = METHOD_COLORS.get(method, "#888888")
+        label = METHOD_LABELS.get(method, method)
+
+        # Collect history across seeds
+        seed_histories = []
+        for seed_result in r.get("per_seed", []):
+            steps = seed_result.get("history_steps", [])
+            rewards = seed_result.get("history_reward", [])
+            if steps and rewards:
+                seed_histories.append((steps, rewards))
+
+        if not seed_histories:
+            continue
+
+        has_data = True
+
+        # Average across seeds (interpolate to common x-axis)
+        max_step = max(s[-1] for s, _ in seed_histories)
+        x_common = np.linspace(0, max_step, 100)
+        y_all = []
+        for steps, rewards in seed_histories:
+            y_interp = np.interp(x_common, steps, rewards)
+            y_all.append(y_interp)
+
+        y_mean = np.mean(y_all, axis=0)
+
+        # Smooth with rolling average
+        window = 5
+        if len(y_mean) > window:
+            y_smooth = np.convolve(y_mean, np.ones(window) / window, mode="same")
+        else:
+            y_smooth = y_mean
+
+        ax.plot(x_common, y_smooth, color=color, label=label,
+                linewidth=2.5, alpha=0.9)
+
+        # Show std band if multiple seeds
+        if len(y_all) > 1:
+            y_std = np.std(y_all, axis=0)
+            if len(y_std) > window:
+                y_std = np.convolve(y_std, np.ones(window) / window, mode="same")
+            ax.fill_between(x_common, y_smooth - y_std, y_smooth + y_std,
+                            color=color, alpha=0.15)
+
+    if not has_data:
+        plt.close(fig)
+        return
+
+    ax.set_xlabel("Training Steps", fontsize=13)
+    ax.set_ylabel("Average Reward", fontsize=13)
+    ax.set_title(f"Reward vs Training Steps on {env_name}\n"
+                 f"2 seeds | RTX 3090 | PufferLib 3.0",
+                 fontsize=14, fontweight="bold")
+    ax.legend(fontsize=11, loc="upper left", framealpha=0.9)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.grid(alpha=0.3)
+
+    # Format x-axis with M/K suffixes
+    ax.xaxis.set_major_formatter(plt.FuncFormatter(
+        lambda x, _: f"{x/1e6:.1f}M" if x >= 1e6 else f"{x/1e3:.0f}K"
+    ))
+
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved: {output_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Plot MiniGrid benchmark results")
     parser.add_argument("--results", type=str, default="results_minigrid")
@@ -195,6 +273,7 @@ def main():
         plot_solve_rate_bar(results, env_name, output_dir / f"solve_rate_{safe_name}.png")
         plot_reward_bar(results, env_name, output_dir / f"reward_{safe_name}.png")
         plot_combined(results, env_name, output_dir / f"combined_{safe_name}.png")
+        plot_reward_curves(results, env_name, output_dir / f"reward_curve_{safe_name}.png")
 
     print()
 
