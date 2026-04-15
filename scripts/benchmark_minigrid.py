@@ -37,6 +37,8 @@ ENVS = {
     "Empty-8x8": {"full_name": "MiniGrid-Empty-8x8-v0", "difficulty": "easy"},
     "DoorKey-6x6": {"full_name": "MiniGrid-DoorKey-6x6-v0", "difficulty": "medium"},
     "KeyCorridorS3R2": {"full_name": "MiniGrid-KeyCorridorS3R2-v0", "difficulty": "hard"},
+    "KeyCorridorS4R3": {"full_name": "MiniGrid-KeyCorridorS4R3-v0", "difficulty": "hard"},
+    "KeyCorridorS5R3": {"full_name": "MiniGrid-KeyCorridorS5R3-v0", "difficulty": "hard"},
     "KeyCorridorS6R3": {"full_name": "MiniGrid-KeyCorridorS6R3-v0", "difficulty": "very_hard"},
     "ObstructedMaze-2Dlhb": {"full_name": "MiniGrid-ObstructedMaze-2Dlhb-v1", "difficulty": "very_hard"},
     "MultiRoom-N6": {"full_name": "MiniGrid-MultiRoom-N6-v0", "difficulty": "very_hard"},
