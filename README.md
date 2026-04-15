@@ -95,6 +95,8 @@ KeyCorridorS6R3 is a hard exploration problem: the agent must navigate 6 rooms, 
 
 Three exploration methods achieve 100% solve rate where PPO fails. NovelD achieves the highest reward (fastest solving).
 
+![Reward Curve KeyCorridorS4R3](docs/plots/reward_curve_KeyCorridorS4R3.png)
+
 #### KeyCorridorS6R3 — Very hard (6 rooms, 1080 max steps)
 
 ![Exploration Methods on KeyCorridorS6R3](docs/plots/combined_KeyCorridorS6R3.png)
@@ -109,6 +111,8 @@ Three exploration methods achieve 100% solve rate where PPO fails. NovelD achiev
 | **NGU** | **100%** | **0.509** | **Only method that solves it** |
 
 On the hardest environment, only NGU (Never Give Up) succeeds. NGU combines episodic novelty (visit new states within each episode) with lifelong novelty (prioritize globally novel states) — exactly what long-corridor environments require.
+
+![Reward Curve KeyCorridorS6R3](docs/plots/reward_curve_KeyCorridorS6R3.png)
 
 ### Throughput (RTX 3090, 131K batch, obs_dim=128)
 
