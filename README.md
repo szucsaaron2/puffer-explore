@@ -80,6 +80,8 @@ metrics = rnd.update(obs_batch, next_obs_batch, actions_batch)
 
 KeyCorridorS6R3 is a hard exploration problem: the agent must navigate 6 rooms, find a key, and return to unlock a door. **Random exploration solves it 0% of the time.** PPO alone completely fails.
 
+![Exploration Methods on KeyCorridorS6R3](docs/plots/combined_KeyCorridorS6R3.png)
+
 | Method | Solve Rate | Reward | SPS | Result |
 |--------|----------:|-------:|----:|--------|
 | **PPO** (no exploration) | 0.0% | 0.000 | 2,418 | Fails completely |
