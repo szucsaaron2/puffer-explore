@@ -221,13 +221,16 @@ def run_experiment(
         # Inject intrinsic reward stats into PufferLib dashboard
         if explore_trainer is not None:
             active_trainer.explore()
-            # Compute mean intrinsic reward for logging
+            # Re-compute intrinsic just for logging — compute_rewards()
+            # expects pre-normalized obs (same as augment_rewards' pipeline)
+            obs_flat = base_trainer.observations.reshape(-1, explore_trainer._obs_dim)
+            next_obs_flat = explore_trainer._build_next_obs(
+                base_trainer.observations
+            ).reshape(-1, explore_trainer._obs_dim)
+            norm_obs = explore_trainer.exploration.normalize_obs(obs_flat)
+            norm_next_obs = explore_trainer.exploration.normalize_obs(next_obs_flat)
             intrinsic = explore_trainer.exploration.compute_rewards(
-                base_trainer.observations.reshape(-1, explore_trainer._obs_dim),
-                explore_trainer._build_next_obs(
-                    base_trainer.observations
-                ).reshape(-1, explore_trainer._obs_dim),
-                base_trainer.actions.reshape(-1),
+                norm_obs, norm_next_obs, base_trainer.actions.reshape(-1),
             )
             mean_intrinsic = intrinsic.mean().item()
             max_intrinsic = intrinsic.max().item()

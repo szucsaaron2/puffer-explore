@@ -131,10 +131,39 @@ def run_experiment(
     config["wandb"] = False
     config["neptune"] = False
 
+    # Wrapper: strip MuJoCo debug info (x_position, x_velocity, etc.)
+    # and inject clean episode/r + episode/l when episodes end.
+    class CleanStatsWrapper(gym.Wrapper):
+        def __init__(self, env):
+            super().__init__(env)
+            self._ep_reward = 0.0
+            self._ep_length = 0
+
+        def reset(self, **kwargs):
+            obs, info = self.env.reset(**kwargs)
+            self._ep_reward = 0.0
+            self._ep_length = 0
+            return obs, {}  # drop MuJoCo startup info
+
+        def step(self, action):
+            obs, reward, terminated, truncated, info = self.env.step(action)
+            self._ep_reward += float(reward)
+            self._ep_length += 1
+            # Strip all debug info; only emit episode stats at end
+            if terminated or truncated:
+                clean_info = {
+                    "episode/r": self._ep_reward,
+                    "episode/l": self._ep_length,
+                }
+                self._ep_reward = 0.0
+                self._ep_length = 0
+                return obs, reward, terminated, truncated, clean_info
+            return obs, reward, terminated, truncated, {}
+
     # PufferLib-wrapped MuJoCo env
     def env_creator(buf=None, seed=seed, **kwargs):
         return pufferlib.vector.GymnasiumPufferEnv(
-            env_creator=lambda: gym.make(gym_id),
+            env_creator=lambda: CleanStatsWrapper(gym.make(gym_id)),
             buf=buf,
         )
 
@@ -194,14 +223,20 @@ def run_experiment(
 
         if explore_trainer is not None:
             active_trainer.explore()
+            # Re-compute intrinsic just for logging (augment_rewards already ran)
+            # Pass normalized obs since compute_rewards expects that
+            obs_flat = base_trainer.observations.reshape(-1, explore_trainer._obs_dim)
+            next_obs_flat = explore_trainer._build_next_obs(
+                base_trainer.observations
+            ).reshape(-1, explore_trainer._obs_dim)
+            norm_obs = explore_trainer.exploration.normalize_obs(obs_flat)
+            norm_next_obs = explore_trainer.exploration.normalize_obs(next_obs_flat)
+            if base_trainer.actions.dim() == 2:
+                actions_flat = base_trainer.actions.reshape(-1)
+            else:
+                actions_flat = base_trainer.actions.reshape(-1, base_trainer.actions.shape[-1])
             intrinsic = explore_trainer.exploration.compute_rewards(
-                base_trainer.observations.reshape(-1, explore_trainer._obs_dim),
-                explore_trainer._build_next_obs(
-                    base_trainer.observations
-                ).reshape(-1, explore_trainer._obs_dim),
-                base_trainer.actions.reshape(-1)
-                if base_trainer.actions.dim() == 2
-                else base_trainer.actions.reshape(-1, base_trainer.actions.shape[-1]),
+                norm_obs, norm_next_obs, actions_flat,
             )
             mean_intrinsic = intrinsic.mean().item()
             max_intrinsic = intrinsic.max().item()

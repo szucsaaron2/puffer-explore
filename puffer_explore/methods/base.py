@@ -90,6 +90,8 @@ class BaseExploration(ABC):
     @torch.no_grad()
     def normalize_obs(self, obs: torch.Tensor) -> torch.Tensor:
         """Normalize observations: (obs - mean) / sqrt(var), clipped to [-5, 5]."""
+        if obs.dtype != torch.float32:
+            obs = obs.float()
         return ((obs - self._obs_mean) / self._obs_var.sqrt()).clamp(-5.0, 5.0)
 
     @torch.no_grad()
@@ -172,6 +174,12 @@ class BaseExploration(ABC):
         Returns:
             The augmented rewards tensor (same object, modified in-place).
         """
+        # Cast to float32 (MuJoCo and some envs use float64)
+        if obs.dtype != torch.float32:
+            obs = obs.float()
+        if next_obs.dtype != torch.float32:
+            next_obs = next_obs.float()
+
         # Step 1-2: Normalize observations
         self._update_obs_stats(next_obs)
         norm_obs = self.normalize_obs(obs)
