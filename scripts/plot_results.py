@@ -164,6 +164,48 @@ def plot_combined(results: list[dict], env_name: str, output_path: Path):
     print(f"  Saved: {output_path}")
 
 
+def plot_best_reward_bar(results: list[dict], env_name: str, output_path: Path):
+    """Bar chart of mean best reward (for envs without a solve rate, e.g. MuJoCo)."""
+    methods = [r["method"] for r in results]
+    rewards = [r.get("mean_best_reward", r.get("mean_reward", 0)) for r in results]
+    colors = [METHOD_COLORS.get(m, "#888888") for m in methods]
+    labels = [METHOD_LABELS.get(m, m) for m in methods]
+
+    # Compute baseline (none) for relative comparison
+    baseline = next((r for r in results if r["method"] == "none"), None)
+    baseline_r = baseline.get("mean_best_reward", baseline.get("mean_reward", 0)) if baseline else 0
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bars = ax.bar(range(len(methods)), rewards, color=colors,
+                  edgecolor="white", linewidth=1.5, width=0.7)
+
+    for bar, val in zip(bars, rewards):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + max(rewards) * 0.02,
+                f"{val:.0f}", ha="center", va="bottom", fontsize=11,
+                fontweight="bold")
+
+    if baseline_r > 0:
+        ax.axhline(y=baseline_r, color="black", linestyle="--",
+                   linewidth=1, alpha=0.4, label=f"baseline ({baseline_r:.0f})")
+        ax.legend(loc="upper left", fontsize=10)
+
+    ax.set_xticks(range(len(methods)))
+    ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=11)
+    ax.set_ylabel("Mean Best Reward", fontsize=12)
+    ax.set_title(f"Best Reward on {env_name}\n2 seeds | RTX 3090 | PufferLib 3.0",
+                 fontsize=14, fontweight="bold")
+    ax.set_ylim(0, max(rewards) * 1.2)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.grid(axis="y", alpha=0.3)
+
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved: {output_path}")
+
+
 def plot_reward_curves(results: list[dict], env_name: str, output_path: Path):
     """Training curves: reward vs timesteps for all methods."""
     fig, ax = plt.subplots(figsize=(12, 7))
@@ -270,9 +312,16 @@ def main():
         print(f"\n  Plotting {env_name} ({len(results)} methods)")
         safe_name = env_name.replace("-", "_").replace("/", "_")
 
-        plot_solve_rate_bar(results, env_name, output_dir / f"solve_rate_{safe_name}.png")
+        # Detect if this env has solve rates (MiniGrid) or just rewards (MuJoCo)
+        has_solve = any(r.get("mean_solve_rate", 0) > 0 or "best_solve_rate"
+                        in r.get("per_seed", [{}])[0]
+                        for r in results)
+
+        if has_solve:
+            plot_solve_rate_bar(results, env_name, output_dir / f"solve_rate_{safe_name}.png")
+            plot_combined(results, env_name, output_dir / f"combined_{safe_name}.png")
         plot_reward_bar(results, env_name, output_dir / f"reward_{safe_name}.png")
-        plot_combined(results, env_name, output_dir / f"combined_{safe_name}.png")
+        plot_best_reward_bar(results, env_name, output_dir / f"best_reward_{safe_name}.png")
         plot_reward_curves(results, env_name, output_dir / f"reward_curve_{safe_name}.png")
 
     print()
