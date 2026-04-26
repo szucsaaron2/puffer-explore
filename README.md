@@ -45,6 +45,21 @@ PufferExplore:                │                                      │
 
 **The rule: nothing runs per-step during rollout collection.** All exploration computation is one batched pass after the full rollout is collected.
 
+## Installation
+
+```bash
+git clone https://github.com/szucsaaron2/puffer-explore.git
+cd puffer-explore
+pip install -e .
+
+# Then install PufferLib (3.0 from PyPI, or 4.0 from source):
+pip install pufferlib                                  # 3.0 stable
+# OR
+pip install git+https://github.com/PufferAI/PufferLib.git@4.0  # 4.0 (needs CUDA toolkit for C ext)
+```
+
+The integration layer auto-detects the installed version. No code changes needed when switching.
+
 ## Quick Start
 
 ```python
