@@ -271,6 +271,256 @@ class TestIntegration:
         env.close()
 
 
+class _MockPufferL30:
+    """Mock PufferLib 3.0 PuffeRL trainer.
+
+    Buffer layout: (segments, horizon, *).
+    Methods: evaluate(), train().
+    """
+
+    def __init__(self, segments=4, horizon=8, obs_dim=64, n_actions=4):
+        self.segments = segments
+        self.observations = torch.randn(segments, horizon, obs_dim)
+        self.actions = torch.randint(0, n_actions, (segments, horizon))
+        self.rewards = torch.zeros(segments, horizon)
+        self.terminals = torch.zeros(segments, horizon)
+        self._evaluate_called = 0
+        self._train_called = 0
+        self.epoch = 0
+
+    def evaluate(self):
+        self._evaluate_called += 1
+        return {}
+
+    def train(self):
+        self._train_called += 1
+        return {}
+
+    def close(self):
+        pass
+
+
+class _MockPufferL40:
+    """Mock PufferLib 4.0 PuffeRL trainer.
+
+    Buffer layout: (horizon, total_agents, *).
+    Methods: rollouts(), train().
+    Actions are 3D: (horizon, agents, num_atns).
+    """
+
+    def __init__(self, horizon=8, total_agents=4, obs_dim=64, num_atns=1):
+        self.total_agents = total_agents
+        self.observations = torch.randn(horizon, total_agents, obs_dim)
+        self.actions = torch.zeros(horizon, total_agents, num_atns,
+                                    dtype=torch.float32)
+        self.rewards = torch.zeros(horizon, total_agents)
+        self.terminals = torch.zeros(horizon, total_agents)
+        self._rollouts_called = 0
+        self._train_called = 0
+        self.epoch = 0
+        self.total_epochs = 100
+        self.global_step = 0
+
+    def rollouts(self):
+        self._rollouts_called += 1
+        return None
+
+    def train(self):
+        self._train_called += 1
+        return {}
+
+    def log(self):
+        return {"agent_steps": self.global_step}
+
+    def close(self):
+        pass
+
+
+class TestExploreTrainerVersionDetection:
+    """ExploreTrainer auto-detects PufferLib 3.0 vs 4.0 from API shape."""
+
+    def test_detects_version_3(self):
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL30(segments=4, horizon=8, obs_dim=64)
+        et = ExploreTrainer(mock, method="rnd", device=DEVICE,
+                            use_compile=False)
+        assert et._version == "3.0"
+
+    def test_detects_version_4(self):
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL40(horizon=8, total_agents=4, obs_dim=64)
+        et = ExploreTrainer(mock, method="rnd", device=DEVICE,
+                            use_compile=False)
+        assert et._version == "4.0"
+
+    def test_obs_dim_inferred_3(self):
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL30(segments=4, horizon=8, obs_dim=128)
+        et = ExploreTrainer(mock, method="rnd", device=DEVICE,
+                            use_compile=False)
+        assert et._obs_dim == 128
+
+    def test_obs_dim_inferred_4(self):
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL40(horizon=8, total_agents=4, obs_dim=128)
+        et = ExploreTrainer(mock, method="rnd", device=DEVICE,
+                            use_compile=False)
+        assert et._obs_dim == 128
+
+    def test_n_envs_inferred_3(self):
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL30(segments=16, horizon=8, obs_dim=64)
+        et = ExploreTrainer(mock, method="count_based", device=DEVICE)
+        # In 3.0, n_envs maps to segments
+        assert et.exploration.n_envs == 16
+
+    def test_n_envs_inferred_4(self):
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL40(horizon=8, total_agents=32, obs_dim=64)
+        et = ExploreTrainer(mock, method="count_based", device=DEVICE)
+        # In 4.0, n_envs maps to total_agents
+        assert et.exploration.n_envs == 32
+
+
+class TestExploreTrainerBufferAxes:
+    """ExploreTrainer correctly handles different buffer axis layouts."""
+
+    def test_build_next_obs_3(self):
+        """3.0: time axis is dim 1 — (segments, horizon, *)."""
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL30(segments=2, horizon=4, obs_dim=8)
+        et = ExploreTrainer(mock, method="count_based", device=DEVICE)
+        next_obs = et._build_next_obs(mock.observations)
+        assert next_obs.shape == mock.observations.shape
+        # next_obs[t] = obs[t+1] within each segment
+        assert torch.allclose(next_obs[:, 0], mock.observations[:, 1])
+        # Last step duplicated
+        assert torch.allclose(next_obs[:, -1], mock.observations[:, -1])
+
+    def test_build_next_obs_4(self):
+        """4.0: time axis is dim 0 — (horizon, agents, *)."""
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL40(horizon=4, total_agents=2, obs_dim=8)
+        et = ExploreTrainer(mock, method="count_based", device=DEVICE)
+        next_obs = et._build_next_obs(mock.observations)
+        assert next_obs.shape == mock.observations.shape
+        # next_obs[t] = obs[t+1] (time axis is 0)
+        assert torch.allclose(next_obs[0], mock.observations[1])
+        assert torch.allclose(next_obs[-1], mock.observations[-1])
+
+    def test_flatten_actions_2d(self):
+        """3.0: discrete actions are 2D (segments, horizon)."""
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL30(segments=4, horizon=8)
+        et = ExploreTrainer(mock, method="count_based", device=DEVICE)
+        actions = torch.zeros(4, 8, dtype=torch.long)
+        flat = et._flatten_actions(actions)
+        assert flat.shape == (32,)
+
+    def test_flatten_actions_3d_single(self):
+        """4.0: single discrete action per agent (horizon, agents, 1)."""
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL40(horizon=8, total_agents=4)
+        et = ExploreTrainer(mock, method="count_based", device=DEVICE)
+        actions = torch.zeros(8, 4, 1)
+        flat = et._flatten_actions(actions)
+        assert flat.shape == (32,)
+
+    def test_flatten_actions_3d_continuous(self):
+        """4.0: continuous actions (horizon, agents, act_dim)."""
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL40(horizon=8, total_agents=4, num_atns=6)
+        et = ExploreTrainer(mock, method="count_based", device=DEVICE)
+        actions = torch.zeros(8, 4, 6)
+        flat = et._flatten_actions(actions)
+        # Should preserve action dim
+        assert flat.shape == (32, 6)
+
+
+class TestExploreTrainerRolloutCycle:
+    """ExploreTrainer correctly drives the evaluate→explore→train cycle."""
+
+    def test_evaluate_dispatches_to_correct_method_3(self):
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL30()
+        et = ExploreTrainer(mock, method="count_based", device=DEVICE)
+        et.evaluate()
+        assert mock._evaluate_called == 1
+
+    def test_evaluate_dispatches_to_correct_method_4(self):
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL40()
+        et = ExploreTrainer(mock, method="count_based", device=DEVICE)
+        et.evaluate()
+        # In 4.0, evaluate() calls rollouts() under the hood
+        assert mock._rollouts_called == 1
+
+    def test_explore_modifies_rewards_3(self):
+        """In 3.0, explore() should add intrinsic rewards in-place."""
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL30(segments=4, horizon=8, obs_dim=64)
+        # Set rewards to known value
+        mock.rewards.fill_(0.0)
+        rewards_before = mock.rewards.clone()
+        et = ExploreTrainer(mock, method="count_based", device=DEVICE,
+                             beta=1.0)
+        et.explore()
+        # Count-based should add some positive intrinsic reward
+        assert not torch.allclose(mock.rewards, rewards_before), \
+            "explore() should modify rewards in-place"
+
+    def test_explore_modifies_rewards_4(self):
+        """In 4.0, explore() should add intrinsic rewards in-place."""
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL40(horizon=8, total_agents=4, obs_dim=64)
+        mock.rewards.fill_(0.0)
+        rewards_before = mock.rewards.clone()
+        et = ExploreTrainer(mock, method="count_based", device=DEVICE,
+                             beta=1.0)
+        et.explore()
+        assert not torch.allclose(mock.rewards, rewards_before), \
+            "explore() should modify rewards in-place"
+
+    def test_full_cycle_3(self):
+        """evaluate -> explore -> train cycle on 3.0 buffer layout."""
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL30()
+        et = ExploreTrainer(mock, method="count_based", device=DEVICE)
+        et.evaluate()
+        et.explore()
+        logs = et.train()
+        assert mock._evaluate_called == 1
+        assert mock._train_called == 1
+        assert isinstance(logs, dict)
+
+    def test_full_cycle_4(self):
+        """evaluate -> explore -> train cycle on 4.0 buffer layout."""
+        from puffer_explore.integration import ExploreTrainer
+        mock = _MockPufferL40()
+        et = ExploreTrainer(mock, method="count_based", device=DEVICE)
+        et.evaluate()
+        et.explore()
+        logs = et.train()
+        assert mock._rollouts_called == 1
+        assert mock._train_called == 1
+        assert isinstance(logs, dict)
+
+
+class TestCompatLayer:
+    """puffer_explore.compat detects PufferLib version."""
+
+    def test_compat_module_imports(self):
+        from puffer_explore import compat
+        assert hasattr(compat, "PUFFERLIB_VERSION")
+        assert hasattr(compat, "get_pufferl")
+        assert hasattr(compat, "load_config")
+
+    def test_version_string(self):
+        from puffer_explore.compat import PUFFERLIB_VERSION
+        # Whatever is installed should be one of the known versions
+        assert PUFFERLIB_VERSION in ("3.0", "4.0", "unknown")
+
+
 class TestThroughput:
     """Basic throughput regression tests. Not comprehensive (use benchmark.py for that)."""
 

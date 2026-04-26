@@ -96,7 +96,7 @@ def run_experiment(
     verbose: bool = True,
 ) -> dict:
     """Run a single PufferLib + exploration experiment on MuJoCo."""
-    from pufferlib.pufferl import PuffeRL, load_config
+    from puffer_explore.compat import PuffeRL, load_config
     import pufferlib
     import pufferlib.vector
     import gymnasium as gym

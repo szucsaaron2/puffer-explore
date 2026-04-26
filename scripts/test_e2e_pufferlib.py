@@ -15,12 +15,15 @@ import time
 def main():
     print("=== PufferLib + PufferExplore End-to-End Test ===\n")
 
-    # 1. Import PufferLib
+    # 1. Import PufferLib (auto-detects 3.0 or 4.0 via compat layer)
     try:
-        from pufferlib.pufferl import PuffeRL, load_config
+        from puffer_explore.compat import (
+            PuffeRL, load_config, PUFFERLIB_VERSION,
+        )
         import pufferlib
         import pufferlib.vector
-        print(f"PufferLib {pufferlib.__version__} loaded")
+        print(f"PufferLib {pufferlib.__version__} loaded "
+              f"(detected as {PUFFERLIB_VERSION})")
     except ImportError as e:
         print(f"ERROR: PufferLib not available: {e}")
         sys.exit(1)

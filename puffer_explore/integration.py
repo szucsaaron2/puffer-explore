@@ -6,11 +6,19 @@ The integration follows PufferLib's design philosophy:
 - Rewards are augmented in-place in the rollout buffer (no allocation)
 - Exploration network updates happen during the PPO minibatch loop
 
+Supports both PufferLib 3.0 and 4.0:
+    | Aspect | 3.0 | 4.0 |
+    |--------|-----|-----|
+    | Module | pufferlib.pufferl | pufferlib.torch_pufferl |
+    | Buffer | (segments, horizon, *) | (horizon, total_agents, *) |
+    | Rollout | evaluate() | rollouts() |
+    | Logs | self.stats (dict from info) | self.env_logs |
+
 Usage with PufferLib:
     from puffer_explore.integration import ExploreTrainer
 
     trainer = ExploreTrainer(
-        pufferl_trainer,       # existing PufferLib trainer
+        pufferl_trainer,       # existing PufferLib trainer (3.0 or 4.0)
         method="rnd",          # exploration method
         obs_dim=obs_dim,
         beta=0.01,
@@ -160,6 +168,9 @@ class ExploreTrainer:
 
     def _infer_n_envs(self) -> int:
         if self._version == "4.0":
+            # 4.0: total_agents is the canonical attribute
+            if hasattr(self.pufferl, "total_agents"):
+                return self.pufferl.total_agents
             return self.pufferl.observations.shape[1]
         try:
             return self.pufferl.segments
@@ -208,6 +219,24 @@ class ExploreTrainer:
             next_obs[:, -1] = observations[:, -1]
         return next_obs
 
+    def _flatten_actions(self, actions: torch.Tensor) -> torch.Tensor:
+        """Flatten actions to (N,) for discrete or (N, act_dim) for continuous.
+
+        PufferLib 3.0 actions: (segments, horizon) discrete, or
+                               (segments, horizon, act_dim) continuous
+        PufferLib 4.0 actions: (horizon, agents, num_atns) — always 3D
+        """
+        if actions.dim() <= 2:
+            # Discrete: flatten to (N,)
+            return actions.reshape(-1)
+        # 3D: continuous or multi-discrete, last dim is action shape
+        last_dim = actions.shape[-1]
+        if last_dim == 1:
+            # Single action per agent — squeeze last dim
+            return actions.reshape(-1)
+        # Continuous or multi-action: (N, act_dim)
+        return actions.reshape(-1, last_dim)
+
     @torch.no_grad()
     def explore(self):
         """Batch-compute intrinsic rewards and augment the rollout buffer.
@@ -221,7 +250,7 @@ class ExploreTrainer:
             next_obs_flat = self._build_next_obs(
                 buf.observations
             ).reshape(-1, self._obs_dim)
-            actions_flat = buf.actions.reshape(-1)
+            actions_flat = self._flatten_actions(buf.actions)
             rewards_flat = buf.rewards.reshape(-1)
         except AttributeError:
             return
@@ -254,7 +283,7 @@ class ExploreTrainer:
                 self.pufferl.observations
             ).reshape(-1, self._obs_dim)[idx]
 
-            mb_actions = self.pufferl.actions.reshape(-1)[idx]
+            mb_actions = self._flatten_actions(self.pufferl.actions)[idx]
 
             # Normalize obs before updating exploration networks
             # (matching the normalization applied in augment_rewards)
@@ -275,14 +304,38 @@ class ExploreTrainer:
         return logs
 
     def log(self):
-        """Pass through to PufferLib's logging."""
+        """Pass through to PufferLib's logging.
+
+        4.0: returns dict from log() method
+        3.0: returns dict from mean_and_log()
+        """
         if hasattr(self.pufferl, "log"):
             return self.pufferl.log()
-        return self.pufferl.mean_and_log()
+        if hasattr(self.pufferl, "mean_and_log"):
+            return self.pufferl.mean_and_log()
+        return {}
 
     def close(self):
-        """Pass through to PufferLib's cleanup."""
-        return self.pufferl.close()
+        """Pass through to PufferLib's cleanup (works for both 3.0 and 4.0)."""
+        if hasattr(self.pufferl, "close"):
+            return self.pufferl.close()
+        return None
+
+    def print_dashboard(self, *args, **kwargs):
+        """Pass through to dashboard if available (3.0 only; 4.0 has different interface)."""
+        if hasattr(self.pufferl, "print_dashboard"):
+            return self.pufferl.print_dashboard(*args, **kwargs)
+        return None
+
+    @property
+    def epoch(self):
+        """Current epoch (both versions have this)."""
+        return getattr(self.pufferl, "epoch", 0)
+
+    @property
+    def total_epochs(self):
+        """Total epochs (4.0 has this, 3.0 may not)."""
+        return getattr(self.pufferl, "total_epochs", float("inf"))
 
 
 class StandaloneExploreTrainer:

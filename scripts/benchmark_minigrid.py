@@ -106,7 +106,7 @@ def run_experiment(
     early_stop_patience consecutive checks. Set early_stop_solve_rate > 1
     to disable.
     """
-    from pufferlib.pufferl import PuffeRL, load_config
+    from puffer_explore.compat import PuffeRL, load_config
     import pufferlib
     import pufferlib.vector
 

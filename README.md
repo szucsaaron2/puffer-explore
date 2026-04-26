@@ -2,7 +2,9 @@
 
 **High-performance intrinsic exploration methods for [PufferLib](https://github.com/PufferAI/PufferLib) — designed to not be the bottleneck.**
 
-[![Tests](https://img.shields.io/badge/tests-37%2F37-brightgreen.svg)]()
+Supports **PufferLib 3.0 and 4.0** — the integration layer auto-detects the installed version and adapts to its buffer layout (`(segments, horizon, *)` for 3.0, `(horizon, total_agents, *)` for 4.0).
+
+[![Tests](https://img.shields.io/badge/tests-56%2F56-brightgreen.svg)]()
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
@@ -205,6 +207,7 @@ puffer_explore/
 │   └── go_explore.py  #   Go-Explore (archive-based, Phase 1)
 ├── networks.py        # TinyMLP (~33K params), DynamicsEncoder, torch.compile wrapper
 ├── integration.py     # PufferLib hook (ExploreTrainer) + StandaloneExploreTrainer
+├── compat.py          # PufferLib 3.0/4.0 version detection + import shim
 ├── benchmark.py       # Throughput measurement tool
 └── kernels/           # (Planned) CUDA C kernels for count-based + reward fusion
 ```
